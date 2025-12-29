@@ -4,7 +4,7 @@ import time
 import qrcode
 from io import BytesIO
 from telebot import TeleBot
-from telebot.types import ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton, InputMediaPhoto
+from telebot.types import ReplyKeyboardMarkup, InlineKeyboardMarkup, InlineKeyboardButton, InputMediaPhoto
 
 # Берём токен и ID из переменных окружения
 BOT_TOKEN = os.getenv("BOT_TOKEN")
@@ -36,12 +36,10 @@ def start(message):
 
 @bot.message_handler(func=lambda m: m.text == "💰 Цена абонемента")
 def price(message):
-    subscribers.add(message.chat.id)
     bot.reply_to(message, "Абонемент — 2000 ₽ в месяц (безлимит)")
 
 @bot.message_handler(func=lambda m: m.text == "📅 Расписание тренировок")
 def schedule(message):
-    subscribers.add(message.chat.id)
     bot.reply_to(message, "Тренировки: понедельник, четверг, суббота — в 19:00")
 
 @bot.message_handler(func=lambda m: m.text == "🖼 Галерея зала")
@@ -66,7 +64,6 @@ def help_cmd(message):
 
 @bot.message_handler(func=lambda m: m.text == "🗓 Записаться на тренировку")
 def booking_sport(message):
-    subscribers.add(message.chat.id)
     markup = InlineKeyboardMarkup()
     markup.add(InlineKeyboardButton("🏋️ Тренажёрка", callback_data="sport_тренажерка"))
     markup.add(InlineKeyboardButton("🧘 Йога", callback_data="sport_йога"))
@@ -89,19 +86,15 @@ def booking_time(call):
     sport = parts[1]
     day = parts[2]
     markup = InlineKeyboardMarkup()
-    markup.add(InlineKeyboardButton("17:00", callback_data=f"time_{sport}_{day}_17:00"))
-    markup.add(InlineKeyboardButton("18:00", callback_data=f"time_{sport}_{day}_18:00"))
-    markup.add(InlineKeyboardButton("19:00", callback_data=f"time_{sport}_{day}_19:00"))
-    markup.add(InlineKeyboardButton("20:00", callback_data=f"time_{sport}_{day}_20:00"))
+    for t in ["17:00","18:00","19:00","20:00"]:
+        markup.add(InlineKeyboardButton(t, callback_data=f"time_{sport}_{day}_{t}"))
     bot.edit_message_text(chat_id=call.message.chat.id, message_id=call.message.message_id,
                           text=f"{sport.capitalize()} — {day.capitalize()}\nВыбери время:", reply_markup=markup)
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith("time_"))
 def booking_confirm(call):
     parts = call.data.split("_")
-    sport = parts[1]
-    day = parts[2]
-    time_slot = parts[3]
+    sport, day, time_slot = parts[1], parts[2], parts[3]
     user_name = call.from_user.first_name or "Клиент"
     chat_id = call.message.chat.id
 
@@ -109,14 +102,12 @@ def booking_confirm(call):
 
     qr_text = f"Вход: {user_name} | {sport} | {day} {time_slot}"
     bio = BytesIO()
-    qr = qrcode.make(qr_text)
-    qr.save(bio, 'PNG')
+    qrcode.make(qr_text).save(bio, 'PNG')
     bio.seek(0)
 
-    bot.edit_message_text(chat_id=call.message.chat.id, message_id=call.message.message_id,
+    bot.edit_message_text(chat_id=chat_id, message_id=call.message.message_id,
                           text=f"Записал на {sport} {day} в {time_slot} ✅")
     bot.send_photo(chat_id, bio, caption=f"Твой QR-код:\n{qr_text}")
-
     bot.send_message(ADMIN_ID, f"Новая запись!\nОт: {user_name}\n{sport} {day} {time_slot}")
 
 @bot.message_handler(func=lambda m: m.text == "🏋️ Мой прогресс")
@@ -151,7 +142,6 @@ def save_photo(message):
 
 @bot.message_handler(func=lambda m: True)
 def fallback(message):
-    subscribers.add(message.chat.id)
     bot.send_message(message.chat.id, "Выбери кнопку 👇", reply_markup=get_main_keyboard())
 
 # Напоминания
@@ -171,5 +161,12 @@ threading.Thread(target=reminder_loop, daemon=True).start()
 
 print("Спорт-клуб бот запущен!")
 
-bot.infinity_polling()
+# Автоперезапуск при ошибках
+while True:
+    try:
+        bot.polling(none_stop=True, skip_pending=True, timeout=30)
+    except Exception as e:
+        print(f"Ошибка: {e}")
+        time.sleep(10)
+
 
